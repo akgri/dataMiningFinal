@@ -1,0 +1,595 @@
+---
+title: "Servikal kanser verisinde sınıflandırma algoritmalarının kiyaslanması"
+author:
+- 'Öğrenci: Fatih Ekici'
+- 'Öğretim Görevlisi: Deniz İnan'
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 6
+    toc_float: true
+    theme: readable
+    highliht: tango
+    df_print: paged
+    code_folding: show
+abstract: |
+  Bu döküman Doç.Dr. Deniz İnan tarafından verilen  IST4034.1 kodlu  Veri Madenciliği dersi finali için hazırlanmıştır.
+  Veri kaynağı: [UCİ](https://archive.ics.uci.edu/ml/datasets/Cervical+cancer+%28Risk+Factors%29# "uci")
+---
+
+# Veri hakkında temel bilgiler
+
+Veri  Venezuela, Caracas'taki 'Hospital Universitario da toplandı. Veri seti 858 hastanın demografik bilgilerini, alışkanlıklarını ve geçmiş tıbbi kayıtlarını içerir.Veri seti hastaların rahim ağzı kanseri var mı yok mu şeklinde bilgi içermekte hedef değişkenimiz ise biyopsi sonucu Bu sonuca göre hasta veya hasta değil bilgisine erişiyoruz.
+
+## Veri künyesi
+
++---------------+------------------------------------+----------------------------------------------+
+| veri tipi     | değişken ismi                      | değişken açıklaması                          |
++===============+====================================+==============================================+
+| int           | Age                                | Yaş                                          |
++---------------+------------------------------------+----------------------------------------------+
+| int           | Number of sexual partners          | Cinsel partner sayisi                        |
++---------------+------------------------------------+----------------------------------------------+
+| int           | First sexual intercourse           | ilk cinsel ilişki                            |
++---------------+------------------------------------+----------------------------------------------+
+| int           | Num of pregnancies                 | gebelik sayisi                               |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Smokes                             | Sigara kullanıyor mu?                        |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Smokes (years)                     | Sigara kullaniyor ise kaç yıldır kullanıyor? |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Smokes (packs/year)                | yıllık sigara paketi sayisi                  |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Hormonal Contraceptives            | Hormonal Kontraseptifler                     |
++---------------+------------------------------------+----------------------------------------------+
+| int           | Hormonal Contraceptives (years)    | Hormonal Kontraseptifler(Yıllık)             |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | IUD                                | Hormon salıcı kullanıyor mu?                 |
++---------------+------------------------------------+----------------------------------------------+
+| int           | IUD (years)                        | Yılda kaç adet IUD kullanıyor?               |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs                               | Cinsel hastalığı var mı?                     |
++---------------+------------------------------------+----------------------------------------------+
+| int           | STDs (number)                      | Kaç adet cinsel hastalığı var                |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:condylomatosis                | Hpv sebepli siğil                            |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:cervical condylomatosis       | Hpv sebepli rahim ağzı siğili                |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:vaginal condylomatosis        | Vajinal bölge siğil                          |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:vulvo-perineal condylomatosis | Dış genital bölge siğili                     |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:syphilis                      | sifiliz                                      |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:pelvic inflammatory disease   | pelvik inflamatuar hastalık                  |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:genital herpes                | genital herpes                               |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:molluscum contagiosum         | molluscum contagiosum                        |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:AIDS                          | AIDS                                         |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:IHV                           | HiV                                          |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:Hepatitis B                   | Hepatitis B                                  |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | STDs:HPV                           | HPV                                          |
++---------------+------------------------------------+----------------------------------------------+
+| int           | STDs: Number of diagnosis          | Tanı sayısı                                  |
++---------------+------------------------------------+----------------------------------------------+
+| int           | STDs: Time since first diagnosis   | İlk teşhisten itibaren geçen süre            |
++---------------+------------------------------------+----------------------------------------------+
+| int           | STDs: Time since last diagnosis    | Son teşhisten bu yana geçen süre             |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Dx:Cancer                          | Kanser                                       |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Dx:CIN                             | CIN                                          |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Dx:HPV                             | HPV                                          |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Dx                                 | Dx                                           |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Hinselmann                         | Hinselmann                                   |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Schiller                           | Schiller(test)                               |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Citology                           | Sitoloji(test)                               |
++---------------+------------------------------------+----------------------------------------------+
+| bool          | Biopsy                             | Biyopsi(test)                                |
++---------------+------------------------------------+----------------------------------------------+
+
+
+
+
+
+
+# Veri analizine giriş
+
+ ##Yüklenmesi gereken paketler**
+```{r include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 8,
+  fig.height = 8,
+  results = 'asis'
+)
+
+```
+
+
+```{r include=FALSE}
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+library(caTools)
+library(tidyverse)
+library(e1071)
+library(randomForest)
+library(rpart) 
+```
+
+**Paralel hesaplama**
+```{r}
+library(doParallel)
+cl <- makePSOCKcluster(7)
+
+registerDoParallel(cl)
+```
+
+
+**Verinin Yüklenmesi**
+```{r}
+cancer_df <- read_csv("Cervical_cancer_(Risk_Factors)/risk_factors_cervical_cancer.csv", 
+    na = "?")
+cancer_df %>% top_n(10)
+```
+
+Verimizin ilk 10 gözlemini bakarak ne tarz değişkenler ve gözlemler olduğunu görmekteyiz.
+
+Eksik veri sayımızı değişkenlerin temel istatistiklerini inceleyelim.
+
+```{r,results='asis'}
+#skimr paketi veriyi summary()'Ye kıyasla daha güzel bir format ile gösterir.
+
+cancer_df %>% janitor::clean_names() %>% skimr::skim()->skim
+skim
+```
+
+26 'sı binary'i 8 sürekli toplam  36 değişkenimiz ve 858 gözlemimiz bulunmaktadır. Ne yazıkki verideki her bir değişken için detaylı açıklama bulunmamaktadır. r. Buna rağmen analiz edilmeye oldukça müsait bir yapısı olması sebebiyle sorun oluşturmamaktadır.
+
+
+## Eksik ve Hatalı gözlemlerin silinmesi.
+
+
+```{r}
+sum(is.na(cancer_df))
+```
+Toplam 3622 adet eksik gözlem bulunmakta. Verideki eksik değişkenler gerçeken bilinmediği için değil herhangi bir değer girilmesinin anlamsız kalınmasından kaynaklı eksikler.STD'si bulunmayan bir kişinin ilk teşhis tarihi bulunmayacağından dolayı ilgili kısım boş kalakacaktır.
+Sonuç olarak eksik verileri yapacağımız modellerin gereksinimleri sebebiyle doldurmalıyız veya bazı gözlem veya değişkenleri silmeliyiz. Eksik gözlemleri araştıralım.
+
+```{r,fig.width=9,fig.height=9}
+DataExplorer::plot_missing(cancer_df)
+```
+En büyük problem STDs kısmında gözüküyor bakalım.
+
+```{r}
+cancer_df %>% filter(STDs!=0) %>% select(`STDs: Time since first diagnosis`,`STDs: Time since last diagnosis`) %>% nrow()-
+  cancer_df %>% filter(STDs!=0) %>% select(`STDs: Time since first diagnosis`,`STDs: Time since last diagnosis`) %>%na.omit() %>%  nrow()
+
+```
+Cinsel hastalığı olan kişiler için sadece 8 kişinin teşhiş bilgisi tanımlanmamış Kalan herkesin bilgisi bulunmakta, Yani aslında eksik sayısı 8 diyebiliriz. 
+```{r}
+#teşhis süresinden geçen zamanın biopsy sürecine olan etkisini bakalım.
+cancer_df[c("STDs: Time since first diagnosis","STDs: Time since last diagnosis","Biopsy")] %>% ggplot(aes(y=`STDs: Time since first diagnosis`,x=`Biopsy`)) +geom_boxplot(aes(fill=factor(Biopsy)))
+
+cancer_df %>% group_by(`STDs: Time since first diagnosis`) %>% summarise(n=n())
+
+
+
+
+```
+Boxplot aykırı değerler sebebiyle pek net olmayan bir sonuç vermiştir. ilk 3 yılın toplam dolu gözlem sayısının yarısına yakın bir miktarına eşit olduğunu görmekteyiz.Açıkçası modele yüksek miktarda farkı olan bir değişken olmaması sebebiyle gruplara ayırıp NA'ları doldurmayı gereksiz buluyorum. Biopsi sonucuna asıl etki edenin gerekenin STD olup olmadığı veya kaç adet STD sahibi olduğudur. Bu sebeble bu değişkenleri silelim.
+
+```{r}
+cancer_df %>% select(-c("STDs: Time since first diagnosis","STDs: Time since last diagnosis"))->cancer_df
+```
+
+Ayrıca verideki smokes pacts/year değişkeni hatalı bilgi içermektedir. Bu sebeble bu değişkenide kaldıralım.
+
+```{r}
+cancer_df %>% select(-c(`Smokes (packs/year)`))->cancer_df
+cancer_df %>% mutate(`Smokes (years)`=round(`Smokes (years)`),
+                     `Hormonal Contraceptives (years)`=round(`Hormonal Contraceptives (years)`,2))->cancer_df
+
+
+
+```
+
+Veride eksik olan değerler gizlilik sebebiyle bazı hastalarda boş bırakılmış bu hastaları sildiğimizde 658 satırlık bir veri oluşuyor. Verideki kalan değişkenlerin herhangi ilişkisi yok ayrıca gözlem sayımız çok düşmüyor. Bu sebeple eksik gözlemleri silerek kurtuluyorum.
+Öncelikle binary ve continous olan değişkenleri ayıralım.
+```{r}
+#binary fonksiyonu
+is.binary<-function(x){
+  return(ifelse((na.omit(x) %>% unique() %>% length())<3,TRUE,FALSE))
+}
+#dönüştürme fonksiyonu
+cancer_df %>%  mutate_if(is.binary,as.factor)->cancer_df
+
+cancer_df<-na.omit(cancer_df)
+cancer_df$`STDs:cervical condylomatosis`<-as.numeric(cancer_df$`STDs:cervical condylomatosis`)
+cancer_df$`STDs:AIDS`<-as.numeric(cancer_df$`STDs:AIDS`)
+
+```
+
+## Dengesiz dağılmış veri problemi
+
+```{r}
+cancer_df %>% select(Biopsy) %>% group_by(Biopsy) %>% summarise(n=n())
+```
+
+Verimizde 623 adet biyopsi sonucu 0 çıkan hasta var iken 45 adet 1(pozitif) çıkan hasta bu durumda sınıflandırma dengesiz gözlem problemi ile karşılaşıyoruz. Burda yapabileceğimiz şeyler  metriklerimizi kappa ve auc alarak devam etmek ,undersampling yapmak, veya smote ile sentetik yeni gözlemler oluşturarak verimizi çoğaltmaktır.
+
+Train test ayrımında %60-%40 şeklinde parçalara ayırıp train verisini çoğaltacağım.Model metrikleri olarak yine auc ve kappa'Yı kullanıyor olacağım.
+
+# Train-test ayrımı
+
+```{r}
+set.seed(5)
+split = sample.split(cancer_df$Biopsy, SplitRatio = 0.50)
+
+train = subset(cancer_df,split == TRUE)
+colnames(train)<-make.names(colnames(train))
+test = subset(cancer_df,split == FALSE)
+colnames(test)<-make.names(colnames(test))
+train %>% select(-c( STDs.pelvic.inflammatory.disease,STDs.cervical.condylomatosis,STDs.AIDS, STDs.Hepatitis.B))->train
+```
+
+# Model oluşturma 
+
+Burada pek çok model oluşturup bu modelleri test edeceğiz. burada bagging ile  başlayıp veriyi sanallaştırıp performansı test edeceğim iyi sonuç verirse diğer modellerde de simüle veri kullanacaktır.
+
+
+##  Bagging modeli
+
+Mtry değeri bağımsız değişken sayısına eşitlediğimizde bagging yapmamıza olanak sağlıyor.
+
+```{r}
+set.seed(6)
+bgTrain<-randomForest(Biopsy~.,data = train,
+                      importance=TRUE,
+                      mtry=ncol(train)-1,
+                      ntree=1000,
+                      metric="ROC"
+                       )
+plot(bgTrain)
+```
+
+```{r}
+library(caret)
+library(randomForest)
+set.seed(99)
+confusionMatrixBagging<-confusionMatrix(predict(bgTrain,test),test$Biopsy,positive = "1")
+confusionMatrixBagging
+confusionMatrixBagging$byClass %>% t() %>% magrittr::set_rownames('Bagging')-> resultBagging #sonuçları kıyaslamak için
+
+print(data.frame(resultBagging))
+
+```
+
+VEriyi %50-%50 böldüm verimiz inbalanced olması sebebiyle Sensitiviy skorumuza  %82 seviyesinde. Sadece 2 adet biyopsi sonucu pozitif hastamız hasta değil olarak label edilmiş.%70 - %30 ayrım yapıldığında daha düşük bir sonuç almaktayız. Ozaman yeteri kadar test materyali kalmamakta. veri dengesiz olmasına rağmen oldukça iyi sonuç verdiğini söyleyebiliriz.
+
+Oversampling ile daha iyi bir sonuç almayı deniyelim.
+
+### Oversampling
+
+Rose paketi ile oversampling yapıyorum.
+
+```{r}
+library(ROSE)
+set.seed(100)
+ovun.sample(Biopsy~., data=train,method = "over",N=624)$data->overtrain #N üretilmek istenen düsük gözlemin sayısı iki katını vererek eşit sayısa getiriyoruz.
+rfOVerTrain<-randomForest(Biopsy~.,data = train,
+                      importance=TRUE,
+                      mtry=ncol(train)-1
+                       )
+table(overtrain$Biopsy)
+confusionMatrix(predict(rfOVerTrain,test),test$Biopsy,positive = "1")
+```
+
+Oversampling bu veri için daha özelinde bu model için gerekli değil. her nekadar pozitif veri sayısı az olsa da veri anlamlığığı model için gayet yüksek. Bu sebeplerden ötürü oversampling ile önceki modelimizden daha kötü sonuçlar aldık.
+
+Model gayet mantıklı sonuçlar vermesi sebebiyle Tune işlemi yapmıyorum.
+
+### Model iyileştirme
+
+```{r}
+#hedef değişkenin levelleri numeric olmamak zoruda bu sebeble veriyi yeniliyoruz.
+train->train2
+train2$Biopsy<-ifelse(train2$Biopsy==1,"YES","NO")
+test->test2
+test2$Biopsy<-ifelse(test2$Biopsy==1,"YES","NO")
+test2$Biopsy<-as.factor(test2$Biopsy)
+```
+
+
+```{r}
+#tekrarlı cross validasyon 10 fold 3 tekrar
+
+
+control <- trainControl(method='repeatedcv', 
+                        number=10, 
+                        repeats=3,
+                        search = 'random')
+```
+
+
+```{r}
+train2$Biopsy<-as.factor(train2$Biopsy)
+set.seed(170)
+train
+modelcv<-caret::train(
+  Biopsy ~ .,
+  data = train2,
+  method = "treebag",
+  trControl = control,
+  nbagg = 200,  
+  control = rpart.control(minsplit = 2, cp = 0)
+)
+```
+
+
+
+```{r}
+#confussion matrix yazarak model performansını test edelim.
+test_x<-select(test2,-Biopsy)
+confusionMatrixBaggingTune<-confusionMatrix(predict(modelcv,test2),test2$Biopsy,positive="YES")
+
+confusionMatrixBaggingTune$byClass %>%
+  t() %>% 
+  magrittr::set_rownames('resultBaggingTune')-> resultBaggingTune#sonuçları kıyaslamak için
+
+print(confusionMatrixBaggingTune)
+print(resultBaggingTune)
+```
+Cross validasyon ile model performasını yükseltebildik artık daha iyi sensitivy ve Specifity değerlerimiz var.
+
+## Klasik Karar Ağacı(Decision Tree)
+
+Klasik karar ağacı modeli için rpart paketini kullanalım.
+
+```{r}
+ tcTrain<-rpart(formula=Biopsy~., data=train2, control=rpart.control(minsplit=2, minbucket=1, cp=0.001))
+print(tcTrain)
+```
+Basitçe modelimizi bu şekilde oluşturabiliyoruz.
+
+```{r}
+set.seed(102)
+confusionMatrixTc<-confusionMatrix(predict(tcTrain,test2,type = "class"),test2$Biopsy,positive = "YES")
+
+confusionMatrixTc$byClass %>% t() %>% magrittr::set_rownames('Decion Tree Clasic')-> resultTc #sonuçları kıyaslamak için
+confusionMatrixTc
+resultTc
+```
+
+```{r}
+rpart.plot::rpart.plot(x = tcTrain, yesno = 2, type = 0, extra = 0)
+```
+
+
+
+## Karar ağacı modelini budayalım.
+
+rpart paketi default ayarlarda en sade modeli oluşturacak şekilde ayarlanmıştır. Herhangi bir kompleksite parametresi girmeden verinin budanmış halini alabiliriz.
+
+
+```{r}
+tcTrainSimple<-rpart(formula = Biopsy~.,data = train,
+               method = "class")
+
+print(tcTrainSimple)
+```
+GÖrüldüğü üzere tek bir adet ağaca düştük.
+
+```{r}
+rpart.plot::rpart.plot(x = tcTrainSimple, yesno = 2, type = 0, extra = 0)
+```
+Mudanmış modelimiz hazır.
+
+Model performasını inceleyelim.
+
+```{r}
+set.seed(107)
+confusionMatrixTcsimple<-
+  confusionMatrix(factor(predict(tcTrainSimple,test,type = "class")),factor(test$Biopsy),positive = "1")
+
+confusionMatrixTcsimple$byClass %>% t() %>% magrittr::set_rownames('Simple Decion Tree Clasic')-> resultSimpleTc #sonuçları kıyaslamak için
+confusionMatrixTcsimple
+```
+Etkili bir Sensitivity sonucu aldğımız kesinlikle aşikar, bu durum schiller testinin biopsi sonuca yüksek etki etmesinden kaynaklanıyor.
+
+
+## Random Forest
+
+Daha önceden oluşturmuş olduğumuz bagging modelinde mtry değerini karekök olarak aldığımızda random forest modeli oluşmakta modelimizi oluşturalım.
+
+```{r}
+rfTrain<-randomForest(Biopsy~.,data = train,
+                      importance=TRUE,
+                      mtry=sqrt(ncol(train))
+                       )
+confusionMatrixRandomForest<-confusionMatrix(predict(rfTrain,test),test$Biopsy,positive = "1")
+
+confusionMatrixRandomForest$byClass %>%
+  t() %>% 
+  magrittr::set_rownames('RandomForest')-> resultRandomForest #sonuçları kıyaslamak için
+
+print(confusionMatrixRandomForest)
+print(data.frame(resultRandomForest))
+```
+
+
+Random forest modelini Caret paketi ile hiper parametre iyileştirmesi yapalım.
+Caret sunduğu train() fonksiyonu ile grid veya random search yapmamıza imkan verir. Bu şekilde sensitivity puanımızı daha yüksek bulabliriz.
+
+### model iyileştirme
+
+```{r}
+#hedef değişkenin levelleri numeric olmamak zoruda bu sebeble veriyi yeniliyoruz.
+train->train2
+train2$Biopsy<-ifelse(train2$Biopsy==1,"YES","NO")
+test->test2
+test2$Biopsy<-ifelse(test2$Biopsy==1,"YES","NO")
+test2$Biopsy<-as.factor(test2$Biopsy)
+```
+
+------
+```{r}
+#tekrarlı cross validasyon 10 fold 3 tekrar
+
+control <- trainControl(method='repeatedcv', 
+                        number=10, 
+                        repeats=3,
+                        search = 'grid',
+                        classProbs = TRUE)
+
+set.seed(123)
+#metriğimiz hata yapmayı cezalandıran "Roc" metriğini kullanacağız.
+modelcv<-train(Biopsy~.,data = train2,
+               methods="rf",
+               metric="ROC",
+               tuneLength  = 25, 
+               trControl=control)
+```
+
+-------
+```{r}
+#confussion matrix yazarak model performansını test edelim.
+test_x<-select(test2,-Biopsy)
+confusionMatrixRandomForest<-confusionMatrix(predict(modelcv,test2),test2$Biopsy,positive="YES")
+
+confusionMatrixRandomForest$byClass %>%
+  t() %>% 
+  magrittr::set_rownames('RandomForest')-> resultRandomForest #sonuçları kıyaslamak için
+```
+
+-------
+```{r}
+#sonuçların gösterilmesi
+print(confusionMatrixRandomForest)
+print(data.frame(resultRandomForest))
+```
+
+Görüldüğü üzere cross-validation ile train verisinin iyileştirilmesi ve random search ile en uygun parametrelerin bulunması tahmin sonuçlarını + yönde etkiliyor.
+
+
+## Boosting
+
+Boosting modeli 
+
+Boosting modeli hedef değişkenin 0-1 formatında olmasını istiyor factorden integer'a çevirelim.
+
+```{r}
+train$Biopsy<-as.integer(train$Biopsy)
+ifelse(train2$Biopsy=="NO",0,1)->train$Biopsy
+test$Biopsy<-as.integer(test$Biopsy)
+ifelse(test2$Biopsy=="NO",0,1)->test$Biopsy
+```
+
+**Modeli oluşturalım.**
+
+```{r}
+library(gbm)
+set.seed(1453)
+gmb_train<-gbm(Biopsy~.,data=train,
+               shrinkage = 0.01, #adım büyüklüğü ne kadar küçükse o kadar iyi ve fazla zaman 
+               distribution = "bernoulli",#sınıflandırma
+               cv.folds = 5, #cross validasyon
+               n.trees = 3000, #ağaç sayısı
+               verbose = F
+               )
+
+
+```
+
+
+```{r}
+summary(gmb_train)
+```
+
+Daha önceden belittiğimiz üzere Schiller testi biopsi sonucu için ana etmen bu sebeble aslında modellerin çoğu bu değişken sebebiyle domine olmakta.
+
+Model performasını inceleyelim.
+
+```{r}
+pred <- predict(gmb_train,newdata=test,
+                              type = "response")
+ifelse(pred>0.5,1,0)->pred
+```
+
+### Confussion Matrix
+
+```{r}
+confusionMatrixGBM<-confusionMatrix(factor(pred),factor(test$Biopsy),positive="1")
+
+confusionMatrixGBM$byClass %>%
+  t() %>% 
+  magrittr::set_rownames('GBM')-> resultGBM #sonuçları kıyaslamak için
+
+confusionMatrixGBM
+```
+
+Gbm 'in sonuçları da baya iyi Sensivity ve specifity skorlarımızın ikisi birden yüksek sonuçlar vermektedirler. Hatta boosting karar ağacı modellerinden daha iyi sonuç vermektedir.
+
+
+
+## Lojistik regresyon
+
+Yine Gbm ile lojistik regresyon modeli yapacağız.
+
+```{r}
+logTrain <- glm(formula=Biopsy ~ . , family = binomial(link='logit'),data = train)
+```
+
+```{r}
+predGBM <- predict(logTrain,newdata=select(test,-Biopsy),type='response')
+
+# Bu mdoel de olasılık çıktısı verdiği için dönüşüm yapıyoruz
+predGBM<- ifelse(predGBM > 0.5,"YES","NO")
+
+ifelse(test2$Biopsy=="NO",0,1)->test$Biopsy
+confusionMatrixLOG<-confusionMatrix(factor(predGBM),factor(test2$Biopsy),positive = "YES")
+
+confusionMatrixLOG$byClass %>%
+  t() %>% 
+  magrittr::set_rownames('Lojistik regresyon')-> resultLog
+
+confusionMatrixLOG
+```
+
+
+En başarısız sonucu en lojistik regresyon ile alıyoruz. Model kıyaslamasına geçelim ve en iyi modeli beliryelim.
+
+
+
+
+# Model Sonuçları kıyaslaması
+```{r}
+#ls(pattern = "^result")
+rbind(resultTc,
+resultSimpleTc,
+resultBagging,
+resultBaggingTune,
+resultRandomForest,
+resultGBM,
+resultLog) %>% data.frame() %>% arrange(-Sensitivity) ->LastResult
+data.frame(LastResult)
+```
+
+En iyi modelimizin budanmış karar ağacıyla boosting modelidir.Açıkçası şaşırtıcı bir durum bunun sebebi büyük ihtimal az veri olması sebebiyle benzer yanıtlar bulmaları olduğunu düşünüyorum.
+
+

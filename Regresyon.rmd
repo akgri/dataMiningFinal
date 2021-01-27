@@ -1,0 +1,293 @@
+---
+title: "Şarap kalitesi verisi ile regresyon modellerinin performanslarının kıyaslanması"
+author:
+- 'Öğrenci: Fatih Ekici'
+- 'Öğretim Görevlisi: Deniz İnan'
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 6
+    toc_float: true
+    theme: readable
+    highliht: tango
+    df_print: paged
+    code_folding: show
+abstract: |
+  Bu döküman Doç.Dr. Deniz İnan tarafından verilen  IST4034.1 kodlu  Veri Madenciliği dersi finali için hazırlanmıştır.
+  Veri kaynağı: [UCİ](https://archive.ics.uci.edu/ml/datasets/wine+quality "uci")
+---
+
+# Veri yükleme ve ön işlemleri
+
+```{r include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 8,
+  fig.height = 8,
+  results = 'asis'
+)
+
+```
+
+**Kullanılan kütüphaneler**
+
+```{r}
+library(readr)
+library(caret)
+library(rpart)
+library(randomForest)
+library(gbm)
+library(tidyverse)
+library(tidymodels)
+library(janitor)
+
+```
+
+**Verinin okutulması**
+
+```{r}
+wine_df<-read.csv("winequalityN.csv")
+```
+
+```{r}
+glimpse(wine_df)
+```
+
+1 kategorik 12 numerik değişkenimz var. Güzel type değişkenini one-hot encode ile ayıralım eksik veri varsa onlarla ilgilenelim ve hızlıca model oluşturalım.
+
+```{r}
+sum(is.na(wine_df))
+```
+
+6.497 adet gözlem varken doldurmaya gerek yok direk silelim 38 eksik değişkeni.
+
+```{r}
+wine_df<-na.omit(wine_df)
+```
+
+Bu işlemler bitince prep ile bir recipe nesnesi oluşuracağım.recipe'ı veriye uygulamak için ise juice fonksiyonunu kullanacağım.Test verimiz içinse bake'i kullanacağız.
+
+```{r}
+wine_df$quality %>% hist()
+```
+
+hedef değişken normal dağılıyor.Eğer dağılmasaydı bazı dönüşüm işlemleri yapabilirdik.
+
+Burada tidymodels ile pre-procesing işlemlerini yapmayı deneyeceğim. Burada birkaç ön işleme adımı uygulayacağız. Verilerimiz için bir EDA yapmadığımız için bunlar biraz geneldir. Yine, bunun amacı, bu veriler için gerçekten harika bir model oluşturmaktan ziyade, bir tidymodels iş akışı hakkında fikir edinmek. Bu adımlarda şunları yapacağız:
+
+1.  String değişkenleri faktöre çevir
+2.  Sıfıra yakın varyans belirleyecilerini kaldırma
+3.  Factorleri one-hot encode ile yok et
+4.  tüm sayısal değişkenleri ortalamasına ortalama(verideki type hariç tüm değişkenler)
+5.  Tüm sayısal tahminleyicileri normalize et
+
+# Veri işleme
+
+## Train Test ayrımı
+
+0.8,-0.20 olarak bölüyoruz.
+```{r}
+library(caTools)
+# Train-test ayrımı
+set.seed(5)
+split = sample.split(wine_df$quality, SplitRatio = 0.80)
+train = subset(wine_df,split == TRUE)
+test = subset(wine_df,split == FALSE)
+```
+
+```{r}
+preprocess_recipe <- wine_df %>%
+  recipe(quality ~ .) %>%
+  step_string2factor(all_nominal()) %>% #this converts all of our strings to factors
+  step_other(all_nominal(), threshold = .05) %>% #this will pool infrequent factors into an "other" category
+  step_nzv(all_predictors()) %>% #this will remove zero or near-zero variance predictors
+  #this will dummy out all factor variables
+    step_dummy(all_nominal()) %>%
+  step_center(all_numeric(), -all_outcomes()) %>% #this will mean-center all of our numeric data
+  step_scale(all_numeric(), -all_outcomes()) %>% #this will normalize numeric data
+  prep()
+
+preprocess_recipe
+```
+
+preprocess nesnemiz oluştu train ve test verilerine uygulayalım. Bu kısımda recipe işlemini workflow'a dahil ediyorum model oluştururken workflow üzerinden gerekeni uygulatabiliriz. Bazı durumlarda ise preprocess edilmiş veriyi kullanmak daha uygun olacaktır.
+
+
+```{r}
+ train_prep <- juice(preprocess_recipe)
+ test_prep <- preprocess_recipe %>%
+   bake(test)
+ head(train_prep)
+
+wine_wf <- workflow() %>%
+  add_recipe(preprocess_recipe)
+```
+
+Verimiz temizlendi model oluşturmaya geçebiliriz.
+
+# Modelleme
+
+Bu kısımda artık modelleri oluşturmaya başlayabiliriz. 
+
+```{r include=FALSE}
+train_cv <- train_prep %>%
+  vfold_cv(v = 5) #5 FOLD Cross validasyon yapıyoruz.Hızlı sonuç alabilmek için
+```
+
+# Bagging Regression
+
+Bu kısımda model oluştururken tidymodels'ın daha esnek ve basit model kurma aracını kullanıyoruz.
+
+
+```{r}
+library(baguette)
+
+wine_spec <- bag_mars() %>% #bagged mars model fonksiyonu
+  set_engine("earth", times = 25) %>% #paket
+  set_mode("regression") #classifier mi regresyon mu?
+
+wine_spec
+```
+
+Burada görüldüğü üzere model spec'i ni oluşturdum. Şimdi model nesnesini oluşturalım.
+
+```{r}
+
+Model_Bagged <-wine_wf %>% 
+  add_model(wine_spec) %>%
+  fit(train)
+
+Model_Bagged$fit$fit
+
+```
+
+Değişkenlerin importance değerleri.
+
+## Model performasını ölçelim.
+
+Nodel performansı için yine predict fonksiyonunu kullanıyoruz. Daha sonrada metrics ile sonuçları alabiliriz.
+
+
+```{r}
+baging_test <- test %>%
+  bind_cols(predict(Model_Bagged, test)) %>%
+ 
+  rename(.pred_quality = .pred)
+
+baging_test  %>%
+  metrics(quality, .pred_quality) %>% mutate(model_type="Bagging")->resultBag
+
+resultBag
+```
+
+Bagging ile 0.70 puanlık bir skor aldık. Fena bir Rmse değeri değil 1 puanlık sapma yapıyor, Oldukça iyi diyebiliriz.
+
+# Random Forest
+
+Model nesnemizi oluşturalım.
+
+```{r}
+rf_xy_fit<-
+  rand_forest(mode="regression") %>% set_engine("ranger") %>% 
+  fit_xy(
+    x=select(train_prep,-quality),
+    y=train_prep$quality
+  )
+
+rf_xy_fit # parsnip paketinden random forest modeli oluşturuldu.
+```
+
+mtr değeri 3 node sayısı 5 olan bir modelimiz oluştu. Açıkçası pek başarılı durmuyor yinede modeli test verisi üzerinde deneyerek nihai yargıya varalım.
+
+```{r}
+test_results <- 
+  test_prep %>%
+  select(quality) %>%
+  bind_cols(
+    predict(rf_xy_fit, new_data = test_prep)
+  )
+```
+
+Predict sonuçlarını aldık metrikler üzerindeki sonuçlarını gösterelim.
+
+
+```{r}
+test_results %>% metrics(truth = quality, estimate = .pred) %>% mutate(model_type="Random Forest")-> resultRF
+
+
+
+```
+
+Random  forest oldukça iyi bir sonuç bulduk, ~0.25 rmse değeri bu değerin oldukça iyi bir sonuç olduğunu söyleyebiliriz.
+
+
+# Boosting regresyon
+
+Boosting için tidymodelsda xgboost motorunu kullanabiliyoruz, Bu model hakkında yeterli bilgi bulamadım bu sebeble caret ile kuracağım.
+
+# GBM
+
+## Model
+
+
+```{r}
+gbm_fit <- gbm(quality ~ ., data = train_prep ,
+    distribution = "gaussian", 
+    n.trees = 2000,
+    interaction.depth = 1,
+    shrinkage = 0.01,
+    cv.folds = 5)
+
+summary(gbm_fit)
+```
+Daha önceki modellerde gördüğümüz üzere en çok etki eden değişken alkol değişkeni  Kalan değişkenlerin ağırlıkları daha düşük.
+
+
+```{r}
+gbm.perf(gbm_fit, method = "cv")
+
+
+
+defaultSummary(data.frame(obs = train_prep$quality, 
+                            pred = gbm_fit$fit))
+
+
+```
+
+Modelin train performansı çok yüksek değil train sonucuna bakıp modelleri kıyaslamaya geçebiliriz. 
+
+## Tahmin
+
+
+```{r}
+
+defaultSummary(data.frame(obs = test_prep$quality, 
+                            pred = predict(gbm_fit, 
+                                           select(test_prep,-quality),
+                                           n.trees = 2000)))->resultGBM
+
+
+plot(predict(gbm_fit, select(test_prep,-quality), n.trees = 5000), test_prep$quality,
+     xlab = "Tahmin Edilen", ylab = "Gercek",
+     main = "Tahmin Edilen vs Gercek: GBM",
+     col = "dodgerblue", pch = 20)
+
+
+resultGBM
+```
+
+# Model Sonuçları kıyaslama
+
+```{r}
+data.frame(Modeller=c("Bagging","GBM","Random Forest"),
+           RMSE=c(
+resultBag$.estimate[1],
+resultGBM[[1]],
+resultRF$.estimate[1]))->sonuc
+
+sonuc
+```
+En iyi sonucu Random Forest ile aldık. Bagging ve GBM oldukça yakın sonuçlar verdi. 
+
